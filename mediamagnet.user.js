@@ -1,279 +1,3 @@
-// Initialize global state
-const initialState = {
-    videos: [],
-    scanning: false,
-    dragOver: false,
-    loading: {
-        scan: false,
-        import: false,
-        export: false
-    },
-    preferences: {
-        recursive: true,
-        skipExternal: true,
-        maxDepth: 10
-    },
-    ui: {
-        sortOrder: 'asc',
-        elements: {
-            container: null,
-            console: null,
-            results: null,
-            scanBtn: null,
-            generateBtn: null,
-            clearBtn: null,
-            exportBtn: null,
-            importBtn: null,
-            recursiveCheckbox: null,
-            skipExternalCheckbox: null,
-            maxDepthInput: null
-        },
-        shortcuts: [
-            { keys: 'ctrl+s', action: 'scan' },
-            { keys: 'ctrl+g', action: 'generate' },
-            { keys: 'ctrl+c', action: 'clear' },
-            { keys: '/', action: 'search' },
-            { keys: 'escape', action: 'toggle' }
-        ]
-    }
-};
-
-let state = { ...initialState };
-
-// Helper function to get current state
-function getState() {
-    return state;
-}
-
-// Helper function to update state
-function updateState(newState) {
-    try {
-        state = { ...state, ...newState };
-        if (state.ui?.elements?.results) {
-            updateResults();
-        }
-    } catch (error) {
-        console.error('State update error:', error);
-        log('Failed to update state', 'error');
-    }
-}
-
-// Create store with initial state
-const store = createStore(initialState);
-
-// Helper function to log messages
-function log(message, type = 'info') {
-    try {
-        // If console element doesn't exist yet, just use browser console
-        const consoleElement = document.querySelector('#mm-console');
-        if (!consoleElement) {
-            console.log(`${type.toUpperCase()}: ${message}`);
-            return;
-        }
-
-        const timestamp = new Date().toLocaleTimeString();
-        const logEntry = document.createElement('div');
-        logEntry.className = `mm-log-entry mm-log-${type}`;
-        logEntry.innerHTML = `[${timestamp}] ${message}`;
-        
-        consoleElement.appendChild(logEntry);
-        consoleElement.scrollTop = consoleElement.scrollHeight;
-    } catch (error) {
-        console.error('Logging error:', error);
-    }
-}
-
-// Helper function to format file size
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// Helper function to virtualize results
-function virtualizeResults(videos) {
-    try {
-        if (!Array.isArray(videos)) {
-            throw new Error('Invalid videos array');
-        }
-
-        const itemHeight = 60; // Height of each video item in pixels
-        const containerHeight = 600; // Maximum height of results container
-        const visibleItems = Math.ceil(containerHeight / itemHeight);
-        
-        return videos.map((video, index) => {
-            const element = createVideoElement(video);
-            return element.outerHTML;
-        }).join('');
-    } catch (error) {
-        log(`Failed to virtualize results: ${error.message}`, 'error');
-        console.error('Virtualization error:', error);
-        return '';
-    }
-}
-
-// Update results in the UI
-function updateResults() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-        
-        // Validate required elements
-        if (!elements?.container || !elements?.results) {
-            return; // Skip update if UI is not ready
-        }
-
-        // Get filtered and sorted videos
-        const filteredVideos = getFilteredAndSortedVideos();
-        
-        // Update results container
-        elements.results.innerHTML = virtualizeResults(filteredVideos);
-
-        // Update stats
-        const totalCount = safeQuerySelector(elements.container, '#mm-total-count');
-        const filteredCount = safeQuerySelector(elements.container, '#mm-filtered-count');
-        const totalSize = safeQuerySelector(elements.container, '#mm-total-size');
-
-        if (totalCount) {
-            totalCount.textContent = state.videos.length.toString();
-        }
-        if (filteredCount) {
-            filteredCount.textContent = filteredVideos.length.toString();
-        }
-        if (totalSize) {
-            const totalBytes = state.videos.reduce((sum, video) => sum + (video.size || 0), 0);
-            totalSize.textContent = formatFileSize(totalBytes);
-        }
-
-        // Update button states
-        updateButtons();
-
-        log('Results updated successfully', 'success');
-    } catch (error) {
-        log(`Failed to update results: ${error.message}`, 'error');
-        console.error('Results update error:', error);
-    }
-}
-
-// Get filtered and sorted videos
-function getFilteredAndSortedVideos() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-        if (!elements?.container) {
-            throw new Error('Container not initialized');
-        }
-
-        // Get filter values
-        const searchInput = safeQuerySelector(elements.container, '#mm-search');
-        const searchTerm = (searchInput instanceof HTMLInputElement ? searchInput.value : '').toLowerCase();
-        
-        const qualityFilter = safeQuerySelector(elements.container, '#mm-quality-filter');
-        const quality = qualityFilter instanceof HTMLSelectElement ? qualityFilter.value : 'all';
-        
-        const typeFilter = safeQuerySelector(elements.container, '#mm-type-filter');
-        const type = typeFilter instanceof HTMLSelectElement ? typeFilter.value : 'all';
-        
-        const yearFilter = safeQuerySelector(elements.container, '#mm-year-filter');
-        const year = yearFilter instanceof HTMLSelectElement ? yearFilter.value : 'all';
-
-        // Filter videos
-        let filtered = state.videos.filter(video => {
-            if (searchTerm && !video.name.toLowerCase().includes(searchTerm)) return false;
-            if (quality !== 'all' && video.quality !== quality) return false;
-            if (type !== 'all' && video.type !== type) return false;
-            if (year !== 'all' && video.year !== parseInt(year)) return false;
-            return true;
-        });
-
-        // Get sort settings
-        const sortByElement = safeQuerySelector(elements.container, '#mm-sort-by');
-        const sortBy = sortByElement instanceof HTMLSelectElement ? sortByElement.value : 'name';
-        const sortOrder = state.ui.sortOrder || 'asc';
-
-        // Sort videos
-        filtered.sort((a, b) => {
-            let comparison = 0;
-            switch (sortBy) {
-                case 'name':
-                    comparison = (a.name || '').localeCompare(b.name || '');
-                    break;
-                case 'quality':
-                    comparison = (a.quality || '').localeCompare(b.quality || '');
-                    break;
-                case 'size':
-                    comparison = (a.size || 0) - (b.size || 0);
-                    break;
-                case 'year':
-                    comparison = (a.year || 0) - (b.year || 0);
-                    break;
-            }
-            return sortOrder === 'asc' ? comparison : -comparison;
-        });
-
-        return filtered;
-    } catch (error) {
-        log(`Failed to filter and sort videos: ${error.message}`, 'error');
-        console.error('Filter and sort error:', error);
-        return [];
-    }
-}
-
-// Update button states
-function updateButtons() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-
-        // Skip if UI is not ready
-        if (!elements?.container) {
-            return;
-        }
-
-        // Update scan button
-        if (elements.scanBtn) {
-            elements.scanBtn.disabled = state.scanning;
-            elements.scanBtn.textContent = state.scanning ? 'Scanning...' : 'Scan Directory';
-        }
-
-        // Update generate button
-        if (elements.generateBtn) {
-            elements.generateBtn.disabled = !state.videos.length;
-        }
-
-        // Update clear button
-        if (elements.clearBtn) {
-            elements.clearBtn.disabled = !state.videos.length;
-        }
-
-        log('Buttons updated successfully', 'success');
-    } catch (error) {
-        log(`Failed to update buttons: ${error.message}`, 'error');
-        console.error('Button update error:', error);
-    }
-}
-
-// Helper function to create a video element
-function createVideoElement(video) {
-    const element = document.createElement('div');
-    element.className = 'video-item';
-    element.innerHTML = `
-        <div class="video-title">
-            ${video.title}
-            ${video.year ? `<span class="video-year">(${video.year})</span>` : ''}
-            ${video.season !== null ? `<span class="video-episode">S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')}</span>` : ''}
-        </div>
-        <div class="video-meta">
-            <span class="video-quality">${video.quality}</span>
-            <span class="video-size">${formatFileSize(video.size)}</span>
-        </div>
-        <div class="video-url">${video.url}</div>
-    `;
-    return element;
-}
-
 // ==UserScript==
 // @name         MediaMagnet
 // @namespace    http://tampermonkey.net/
@@ -291,318 +15,41 @@ function createVideoElement(video) {
 // @noframes
 // ==/UserScript==
 
-/* global GM_setValue, GM_getValue, GM_addStyle, GM_download, GM_xmlhttpRequest, GM_registerMenuCommand */
-
-/**
- * @typedef {Object} Video
- * @property {string} url - URL of the video
- * @property {string} filename - Filename of the video
- * @property {string} path - Path of the video
- * @property {number|null} size - Size of the video in bytes
- * @property {string} quality - Quality of the video (e.g., '1080p', '720p')
- * @property {string} type - Type of video (e.g., 'movie', 'tv')
- * @property {string} year - Release year
- * @property {string} [title] - Optional title of the video
- * @property {number|null} [season] - Optional season number
- * @property {number|null} [episode] - Optional episode number
- */
-
-/**
- * @typedef {Object} KeyboardShortcut
- * @property {string} key - Key combination (e.g., 'Ctrl+M')
- * @property {string} description - Description of what the shortcut does
- * @property {() => void} action - Function to execute when shortcut is triggered
- */
-
-/**
- * @typedef {Object} UIElements
- * @property {HTMLElement|null} container - Main container element
- * @property {HTMLButtonElement|null} scanBtn - Scan button
- * @property {HTMLButtonElement|null} generateBtn - Generate playlist button
- * @property {HTMLButtonElement|null} clearBtn - Clear results button
- * @property {HTMLButtonElement|null} exportBtn - Export settings button
- * @property {HTMLButtonElement|null} importBtn - Import settings button
- * @property {HTMLInputElement|null} recursiveCheckbox - Recursive scan checkbox
- * @property {HTMLInputElement|null} skipExternalCheckbox - Skip external links checkbox
- * @property {HTMLInputElement|null} maxDepthInput - Maximum scan depth input
- * @property {HTMLElement|null} console - Console element
- * @property {HTMLElement|null} results - Results container
- */
-
-/**
- * @typedef {Object} UIState
- * @property {UIElements} elements - UI elements
- * @property {number} [containerHeight] - Container height
- * @property {number} [scrollPosition] - Current scroll position
- * @property {ResizeObserver} [resizeObserver] - Resize observer instance
- */
-
-/**
- * @typedef {Object} SearchOptions
- * @property {boolean} recursive - Whether to search recursively
- * @property {number} maxDepth - Maximum search depth
- * @property {boolean} skipExternal - Whether to skip external links
- */
-
-/**
- * @typedef {Object} Store
- * @property {Video[]} videos - List of found videos
- * @property {boolean} scanning - Whether a scan is in progress
- * @property {number} retryCount - Number of retry attempts
- * @property {number} maxRetries - Maximum number of retries
- * @property {number} timeoutMs - Timeout in milliseconds
- * @property {Object} loading - Loading states
- * @property {boolean} loading.scan - Whether scan is loading
- * @property {boolean} loading.import - Whether import is loading
- * @property {boolean} loading.export - Whether export is loading
- * @property {boolean} dragOver - Whether dragging over container
- * @property {Object} filters - Filter states
- * @property {string} filters.quality - Quality filter
- * @property {string} filters.type - Type filter
- * @property {number} filters.minSize - Minimum size filter
- * @property {number} filters.maxSize - Maximum size filter
- * @property {string} filters.searchTerm - Search term filter
- * @property {string} filters.year - Year filter
- * @property {string} filters.hasEpisode - Episode filter
- * @property {SearchOptions} searchOptions - Search options
- * @property {UIState} ui - UI state
- * @property {string} [sortBy] - Sort field
- * @property {string} [sortOrder] - Sort order
- * @property {string[]} [errors] - Error messages
- */
-
-/**
- * Creates a store for state management
- * @param {Store} initialState - Initial state
- * @returns {Store} Store instance
- */
-function createStore(initialState) {
-    /** @type {Set<(state: Store) => void>} */
-    const listeners = new Set();
-    /** @type {Store} */
-    let state = initialState;
-
-    return {
-        /**
-         * Get current state
-         * @returns {Store} Current state
-         */
-        getState: () => state,
-
-        /**
-         * Update state
-         * @param {Partial<Store>} newState - New state to merge
-         */
-        setState: (newState) => {
-            state = { ...state, ...newState };
-            listeners.forEach(listener => listener(state));
-        },
-
-        /**
-         * Subscribe to state changes
-         * @param {(state: Store) => void} listener - State change listener
-         * @returns {() => void} Unsubscribe function
-         */
-        subscribe: (listener) => {
-            listeners.add(listener);
-            return () => listeners.delete(listener);
-        }
-    };
-}
-
-// Subscribe to state changes for UI updates
-store.subscribe((state) => {
-    // Only update results if UI is initialized
-    if (state.ui?.elements?.container && state.ui?.elements?.results) {
-        updateResults();
-    }
-});
-
-// Update results in the UI
-function updateResults() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-        
-        // Validate required elements
-        if (!elements?.container || !elements?.results) {
-            return; // Skip update if UI is not ready
-        }
-
-        // Get filtered and sorted videos
-        const filteredVideos = getFilteredAndSortedVideos();
-        
-        // Update results container
-        elements.results.innerHTML = virtualizeResults(filteredVideos);
-
-        // Update stats
-        const totalCount = safeQuerySelector(elements.container, '#mm-total-count');
-        const filteredCount = safeQuerySelector(elements.container, '#mm-filtered-count');
-        const totalSize = safeQuerySelector(elements.container, '#mm-total-size');
-
-        if (totalCount) {
-            totalCount.textContent = state.videos.length.toString();
-        }
-        if (filteredCount) {
-            filteredCount.textContent = filteredVideos.length.toString();
-        }
-        if (totalSize) {
-            const totalBytes = state.videos.reduce((sum, video) => sum + (video.size || 0), 0);
-            totalSize.textContent = formatFileSize(totalBytes);
-        }
-
-        // Update button states
-        updateButtons();
-
-        log('Results updated successfully', 'success');
-    } catch (error) {
-        log(`Failed to update results: ${error.message}`, 'error');
-        console.error('Results update error:', error);
-    }
-}
-
-// Get filtered and sorted videos
-function getFilteredAndSortedVideos() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-        if (!elements?.container) {
-            throw new Error('Container not initialized');
-        }
-
-        // Get filter values
-        const searchInput = safeQuerySelector(elements.container, '#mm-search');
-        const searchTerm = (searchInput instanceof HTMLInputElement ? searchInput.value : '').toLowerCase();
-        
-        const qualityFilter = safeQuerySelector(elements.container, '#mm-quality-filter');
-        const quality = qualityFilter instanceof HTMLSelectElement ? qualityFilter.value : 'all';
-        
-        const typeFilter = safeQuerySelector(elements.container, '#mm-type-filter');
-        const type = typeFilter instanceof HTMLSelectElement ? typeFilter.value : 'all';
-        
-        const yearFilter = safeQuerySelector(elements.container, '#mm-year-filter');
-        const year = yearFilter instanceof HTMLSelectElement ? yearFilter.value : 'all';
-
-        // Filter videos
-        let filtered = state.videos.filter(video => {
-            if (searchTerm && !video.name.toLowerCase().includes(searchTerm)) return false;
-            if (quality !== 'all' && video.quality !== quality) return false;
-            if (type !== 'all' && video.type !== type) return false;
-            if (year !== 'all' && video.year !== parseInt(year)) return false;
-            return true;
-        });
-
-        // Get sort settings
-        const sortByElement = safeQuerySelector(elements.container, '#mm-sort-by');
-        const sortBy = sortByElement instanceof HTMLSelectElement ? sortByElement.value : 'name';
-        const sortOrder = state.ui.sortOrder || 'asc';
-
-        // Sort videos
-        filtered.sort((a, b) => {
-            let comparison = 0;
-            switch (sortBy) {
-                case 'name':
-                    comparison = (a.name || '').localeCompare(b.name || '');
-                    break;
-                case 'quality':
-                    comparison = (a.quality || '').localeCompare(b.quality || '');
-                    break;
-                case 'size':
-                    comparison = (a.size || 0) - (b.size || 0);
-                    break;
-                case 'year':
-                    comparison = (a.year || 0) - (b.year || 0);
-                    break;
-            }
-            return sortOrder === 'asc' ? comparison : -comparison;
-        });
-
-        return filtered;
-    } catch (error) {
-        log(`Failed to filter and sort videos: ${error.message}`, 'error');
-        console.error('Filter and sort error:', error);
-        return [];
-    }
-}
-
-// Update button states
-function updateButtons() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-
-        // Skip if UI is not ready
-        if (!elements?.container) {
-            return;
-        }
-
-        // Update scan button
-        if (elements.scanBtn) {
-            elements.scanBtn.disabled = state.scanning;
-            elements.scanBtn.textContent = state.scanning ? 'Scanning...' : 'Scan Directory';
-        }
-
-        // Update generate button
-        if (elements.generateBtn) {
-            elements.generateBtn.disabled = !state.videos.length;
-        }
-
-        // Update clear button
-        if (elements.clearBtn) {
-            elements.clearBtn.disabled = !state.videos.length;
-        }
-
-        log('Buttons updated successfully', 'success');
-    } catch (error) {
-        log(`Failed to update buttons: ${error.message}`, 'error');
-        console.error('Button update error:', error);
-    }
-}
-
-// Helper function to format file size
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// Helper function to virtualize results
-function virtualizeResults(videos) {
-    try {
-        if (!Array.isArray(videos)) {
-            throw new Error('Invalid videos array');
-        }
-
-        const itemHeight = 60; // Height of each video item in pixels
-        const containerHeight = 600; // Maximum height of results container
-        const visibleItems = Math.ceil(containerHeight / itemHeight);
-        
-        return videos.map((video, index) => {
-            const element = createVideoElement(video);
-            return element.outerHTML;
-        }).join('');
-    } catch (error) {
-        log(`Failed to virtualize results: ${error.message}`, 'error');
-        console.error('Virtualization error:', error);
-        return '';
-    }
-}
-
-// Helper function to update state
-function updateState(newState) {
-    try {
-        state = { ...state, ...newState };
-        updateResults();
-    } catch (error) {
-        log(`Failed to update state: ${error.message}`, 'error');
-        console.error('State update error:', error);
-    }
-}
-
 (function() {
     'use strict';
+
+    // Single declarations of all needed variables/constants
+    const styles = {
+        container: `
+            // ...existing container styles...
+        `,
+        tooltips: `
+            // ...existing tooltip styles...
+        `,
+        // ...other style definitions...
+    };
+
+    const validators = {
+        video: (video) => {
+            const errors = [];
+            if (!video.url) errors.push('Missing URL');
+            if (!video.filename) errors.push('Missing filename');
+            if (video.size && typeof video.size !== 'number') errors.push('Invalid size');
+            return errors;
+        },
+        // ...other validator functions...
+    };
+
+    // Classes
+    class Tooltip {
+        // Move Tooltip class here
+        // ...existing Tooltip class...
+    }
+
+    class Cleanup {
+        // Move Cleanup class here
+        // ...existing Cleanup class...
+    }
 
     // Constants
     const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'avi', 'm4v', 'mov', 'wmv', 'flv', 'webm', 'mpeg', 'mpg'];
@@ -620,205 +67,277 @@ function updateState(newState) {
         TB: 1024 * 1024 * 1024 * 1024
     };
 
-    // Smart filename parsing
-    function parseFilename(filename) {
-        // Remove extension
-        const name = filename.replace(/\.[^/.]+$/, '');
-        
-        // Detect quality
-        let quality = 'Unknown';
-        for (const [q, pattern] of Object.entries(QUALITY_PATTERNS)) {
-            if (pattern.test(name)) {
-                quality = q;
-                break;
-            }
+    // Create single instances
+    const cleanup = new Cleanup();
+    const tooltip = new Tooltip();
+
+    // Initialize state
+    const initialState = {
+        videos: [],
+        scanning: false,
+        dragOver: false,
+        loading: {
+            scan: false,
+            import: false,
+            export: false
+        },
+        preferences: {
+            recursive: true,
+            skipExternal: true,
+            maxDepth: 10
+        },
+        ui: {
+            sortOrder: 'asc',
+            elements: {
+                container: null,
+                console: null,
+                results: null,
+                scanBtn: null,
+                generateBtn: null,
+                clearBtn: null,
+                exportBtn: null,
+                importBtn: null,
+                recursiveCheckbox: null,
+                skipExternalCheckbox: null,
+                maxDepthInput: null
+            },
+            shortcuts: [
+                { keys: 'ctrl+s', action: 'scan' },
+                { keys: 'ctrl+g', action: 'generate' },
+                { keys: 'ctrl+c', action: 'clear' },
+                { keys: '/', action: 'search' },
+                { keys: 'escape', action: 'toggle' }
+            ]
         }
+    };
 
-        // Extract year if present
-        const yearMatch = name.match(/\b(19|20)\d{2}\b/);
-        const year = yearMatch ? yearMatch[0] : null;
+    // Create store once
+    const store = createStore(initialState);
+    let state = { ...initialState };
 
-        // Extract season/episode if present
-        const episodeMatch = name.match(/S(\d{1,2})E(\d{1,2})/i);
-        const season = episodeMatch ? parseInt(episodeMatch[1]) : null;
-        const episode = episodeMatch ? parseInt(episodeMatch[2]) : null;
-
-        // Clean title
-        let title = name
-            .replace(/\b(19|20)\d{2}\b/, '') // Remove year
-            .replace(/S\d{1,2}E\d{1,2}/i, '') // Remove episode info
-            .replace(/\b(4k|2160p|1080p|720p|480p|uhd|fhd|hd|sd)\b/i, '') // Remove quality
-            .replace(/\b(x264|x265|hevc|aac|ac3)\b/i, '') // Remove codec info
-            .replace(/[._-]/g, ' ') // Replace separators with spaces
-            .replace(/\s+/g, ' ') // Remove multiple spaces
-            .trim();
-
-        return {
-            title,
-            year,
-            season,
-            episode,
-            quality
-        };
+    // Function declarations (keep implementations)
+    function getState() {
+        return state;
     }
 
-    // Utility Functions
+    function updateState(newState) {
+        try {
+            state = { ...state, ...newState };
+            if (state.ui?.elements?.results) {
+                updateResults();
+            }
+        } catch (error) {
+            console.error('State update error:', error);
+            log('Failed to update state', 'error');
+        }
+    }
+
     function log(message, type = 'info') {
         try {
-            // Get console element from store
-            const state = store.getState();
-            const consoleElement = state?.ui?.elements?.console;
-            
-            // If console element doesn't exist yet, queue the message
+            // If console element doesn't exist yet, just use browser console
+            const consoleElement = document.querySelector('#mm-console');
             if (!consoleElement) {
-                const queuedLogs = state.queuedLogs || [];
-                updateState({ queuedLogs: [...queuedLogs, { message, type, timestamp: new Date() }] });
+                console.log(`${type.toUpperCase()}: ${message}`);
                 return;
             }
 
-            // Create log entry
             const timestamp = new Date().toLocaleTimeString();
-            const entry = document.createElement('div');
-            entry.className = `mm-log-entry mm-log-${type}`;
-            entry.textContent = `[${timestamp}] ${type.toUpperCase()}: ${message}`;
+            const logEntry = document.createElement('div');
+            logEntry.className = `mm-log-entry mm-log-${type}`;
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
             
-            // Safely append entry
-            if (consoleElement instanceof HTMLElement) {
-                consoleElement.appendChild(entry);
-                consoleElement.scrollTop = consoleElement.scrollHeight;
-
-                // Keep only last 1000 log entries
-                while (consoleElement.children.length > 1000) {
-                    consoleElement.removeChild(consoleElement.firstChild);
-                }
-            }
+            consoleElement.appendChild(logEntry);
+            consoleElement.scrollTop = consoleElement.scrollHeight;
         } catch (error) {
-            console.error('Logging error:', error.message);
+            console.error('Logging error:', error);
         }
     }
 
-    // Process any queued logs after console is initialized
-    function processQueuedLogs() {
-        const state = store.getState();
-        const queuedLogs = state.queuedLogs || [];
-        
-        if (queuedLogs.length > 0 && state?.ui?.elements?.console) {
-            queuedLogs.forEach(({ message, type, timestamp }) => {
-                log(message, type);
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function virtualizeResults(videos) {
+        try {
+            if (!Array.isArray(videos)) {
+                throw new Error('Invalid videos array');
+            }
+
+            const itemHeight = 60; // Height of each video item in pixels
+            const containerHeight = 600; // Maximum height of results container
+            const visibleItems = Math.ceil(containerHeight / itemHeight);
+            
+            return videos.map((video, index) => {
+                const element = createVideoElement(video);
+                return element.outerHTML;
+            }).join('');
+        } catch (error) {
+            log(`Failed to virtualize results: ${error.message}`, 'error');
+            console.error('Virtualization error:', error);
+            return '';
+        }
+    }
+
+    function updateResults() {
+        try {
+            const state = getState();
+            const { elements } = state.ui;
+            
+            // Validate required elements
+            if (!elements?.container || !elements?.results) {
+                return; // Skip update if UI is not ready
+            }
+
+            // Get filtered and sorted videos
+            const filteredVideos = getFilteredAndSortedVideos();
+            
+            // Update results container
+            elements.results.innerHTML = virtualizeResults(filteredVideos);
+
+            // Update stats
+            const totalCount = safeQuerySelector(elements.container, '#mm-total-count');
+            const filteredCount = safeQuerySelector(elements.container, '#mm-filtered-count');
+            const totalSize = safeQuerySelector(elements.container, '#mm-total-size');
+
+            if (totalCount) {
+                totalCount.textContent = state.videos.length.toString();
+            }
+            if (filteredCount) {
+                filteredCount.textContent = filteredVideos.length.toString();
+            }
+            if (totalSize) {
+                const totalBytes = state.videos.reduce((sum, video) => sum + (video.size || 0), 0);
+                totalSize.textContent = formatFileSize(totalBytes);
+            }
+
+            // Update button states
+            updateButtons();
+
+            log('Results updated successfully', 'success');
+        } catch (error) {
+            log(`Failed to update results: ${error.message}`, 'error');
+            console.error('Results update error:', error);
+        }
+    }
+
+    function getFilteredAndSortedVideos() {
+        try {
+            const state = getState();
+            const { elements } = state.ui;
+            if (!elements?.container) {
+                throw new Error('Container not initialized');
+            }
+
+            // Get filter values
+            const searchInput = safeQuerySelector(elements.container, '#mm-search');
+            const searchTerm = (searchInput instanceof HTMLInputElement ? searchInput.value : '').toLowerCase();
+            
+            const qualityFilter = safeQuerySelector(elements.container, '#mm-quality-filter');
+            const quality = qualityFilter instanceof HTMLSelectElement ? qualityFilter.value : 'all';
+            
+            const typeFilter = safeQuerySelector(elements.container, '#mm-type-filter');
+            const type = typeFilter instanceof HTMLSelectElement ? typeFilter.value : 'all';
+            
+            const yearFilter = safeQuerySelector(elements.container, '#mm-year-filter');
+            const year = yearFilter instanceof HTMLSelectElement ? yearFilter.value : 'all';
+
+            // Filter videos
+            let filtered = state.videos.filter(video => {
+                if (searchTerm && !video.name.toLowerCase().includes(searchTerm)) return false;
+                if (quality !== 'all' && video.quality !== quality) return false;
+                if (type !== 'all' && video.type !== type) return false;
+                if (year !== 'all' && video.year !== parseInt(year)) return false;
+                return true;
             });
-            updateState({ queuedLogs: [] });
+
+            // Get sort settings
+            const sortByElement = safeQuerySelector(elements.container, '#mm-sort-by');
+            const sortBy = sortByElement instanceof HTMLSelectElement ? sortByElement.value : 'name';
+            const sortOrder = state.ui.sortOrder || 'asc';
+
+            // Sort videos
+            filtered.sort((a, b) => {
+                let comparison = 0;
+                switch (sortBy) {
+                    case 'name':
+                        comparison = (a.name || '').localeCompare(b.name || '');
+                        break;
+                    case 'quality':
+                        comparison = (a.quality || '').localeCompare(b.quality || '');
+                        break;
+                    case 'size':
+                        comparison = (a.size || 0) - (b.size || 0);
+                        break;
+                    case 'year':
+                        comparison = (a.year || 0) - (b.year || 0);
+                        break;
+                }
+                return sortOrder === 'asc' ? comparison : -comparison;
+            });
+
+            return filtered;
+        } catch (error) {
+            log(`Failed to filter and sort videos: ${error.message}`, 'error');
+            console.error('Filter and sort error:', error);
+            return [];
         }
     }
 
-    // Cache frequently accessed DOM elements
-    function cacheElements() {
-        const elements = /** @type {UIElements} */ ({
-            container: document.getElementById('mm-container'),
-            console: document.getElementById('mm-console'),
-            results: document.getElementById('mm-results'),
-            totalCount: document.getElementById('mm-total-count'),
-            filteredCount: document.getElementById('mm-filtered-count'),
-            totalSize: document.getElementById('mm-total-size'),
-            searchInput: document.getElementById('mm-search'),
-            qualityFilter: document.getElementById('mm-quality-filter'),
-            typeFilter: document.getElementById('mm-type-filter'),
-            yearFilter: document.getElementById('mm-year-filter'),
-            sortBy: document.getElementById('mm-sort-by'),
-            sortOrder: document.getElementById('mm-sort-order'),
-            scanBtn: document.getElementById('mm-scan-btn'),
-            generateBtn: document.getElementById('mm-generate-btn'),
-            clearBtn: document.getElementById('mm-clear-btn')
-        });
+    function updateButtons() {
+        try {
+            const state = getState();
+            const { elements } = state.ui;
 
-        updateState({ ui: { elements } });
-        return elements;
-    }
-
-    // Initialize ResizeObserver for dynamic UI updates
-    function initializeResizeObserver() {
-        if (store.getState().ui.resizeObserver) {
-            store.getState().ui.resizeObserver.disconnect();
-        }
-
-        const resizeObserver = new ResizeObserver(entries => {
-            for (const entry of entries) {
-                updateUILayout(entry.contentRect);
+            // Skip if UI is not ready
+            if (!elements?.container) {
+                return;
             }
-        });
 
-        if (store.getState().ui.elements.container) {
-            resizeObserver.observe(store.getState().ui.elements.container);
-        }
-
-        updateState({ ui: { resizeObserver } });
-    }
-
-    // Update UI layout based on container size
-    function updateUILayout(contentRect) {
-        updateState({
-            ui: {
-                containerHeight: contentRect.height,
-                visibleItems: Math.ceil(contentRect.height / store.getState().ui.itemHeight) + 2 // Add buffer
+            // Update scan button
+            if (elements.scanBtn) {
+                elements.scanBtn.disabled = state.scanning;
+                elements.scanBtn.textContent = state.scanning ? 'Scanning...' : 'Scan Directory';
             }
-        });
-        updateResults();
+
+            // Update generate button
+            if (elements.generateBtn) {
+                elements.generateBtn.disabled = !state.videos.length;
+            }
+
+            // Update clear button
+            if (elements.clearBtn) {
+                elements.clearBtn.disabled = !state.videos.length;
+            }
+
+            log('Buttons updated successfully', 'success');
+        } catch (error) {
+            log(`Failed to update buttons: ${error.message}`, 'error');
+            console.error('Button update error:', error);
+        }
     }
 
-    // Virtual scrolling implementation
-    function virtualizeResults(filtered) {
-        const { scrollPosition, itemHeight, visibleItems } = store.getState().ui;
-        
-        // Calculate visible range
-        const startIndex = Math.max(0, Math.floor(scrollPosition / itemHeight) - 1);
-        const endIndex = Math.min(filtered.length, startIndex + visibleItems);
-        
-        // Create placeholder for total scroll height
-        const totalHeight = filtered.length * itemHeight;
-        const visibleItemsHtml = filtered.slice(startIndex, endIndex).map((video, index) => `
-            <div class="video-item" style="position: absolute; top: ${(startIndex + index) * itemHeight}px; left: 0; right: 0;">
-                <div class="video-title">
-                    ${video.title}
-                    ${video.year ? `<span class="video-year">(${video.year})</span>` : ''}
-                    ${video.season !== null ? `<span class="video-episode">S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')}</span>` : ''}
-                </div>
-                <div class="video-meta">
-                    <span class="video-quality">${video.quality}</span>
-                    <span class="video-size">${formatFileSize(video.size)}</span>
-                </div>
-                <div class="video-url">${video.url}</div>
+    function createVideoElement(video) {
+        const element = document.createElement('div');
+        element.className = 'video-item';
+        element.innerHTML = `
+            <div class="video-title">
+                ${video.title}
+                ${video.year ? `<span class="video-year">(${video.year})</span>` : ''}
+                ${video.season !== null ? `<span class="video-episode">S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')}</span>` : ''}
             </div>
-        `).join('');
-        
-        // Generate HTML with proper offsets
-        const html = `
-            <div class="virtual-scroll-container" style="height: ${totalHeight}px; position: relative;">
-                ${visibleItemsHtml}
+            <div class="video-meta">
+                <span class="video-quality">${video.quality}</span>
+                <span class="video-size">${formatFileSize(video.size)}</span>
             </div>
+            <div class="video-url">${video.url}</div>
         `;
-        
-        return html;
+        return element;
     }
 
-    // Throttle scroll handler
-    const handleScroll = throttle((e) => {
-        const container = e.target;
-        updateState({ ui: { scrollPosition: container.scrollTop } });
-        updateResults();
-    }, 16); // ~60fps
-
-    // Utility function for throttling
-    function throttle(func, limit) {
-        let inThrottle;
-        return function executedFunction(...args) {
-            if (!inThrottle) {
-                func.apply(this, args);
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, limit);
-            }
-        }
-    }
-
-    // UI Creation
     function createInterface() {
         try {
             const state = getState();
@@ -1059,7 +578,6 @@ function updateState(newState) {
         }
     }
 
-    // Event Listeners
     function initializeEventListeners() {
         const state = getState();
         const { elements } = state.ui;
@@ -1187,7 +705,234 @@ function updateState(newState) {
         }
     }
 
-    // Helper Functions
+    function initializeKeyboardShortcuts() {
+        try {
+            const state = getState();
+            const shortcuts = state?.ui?.shortcuts || [];
+
+            // Remove existing listeners
+            document.removeEventListener('keydown', handleKeyboardShortcut);
+
+            // Add new listener
+            document.addEventListener('keydown', handleKeyboardShortcut);
+
+            log('Keyboard shortcuts initialized', 'success');
+        } catch (error) {
+            log(`Failed to initialize keyboard shortcuts: ${error.message}`, 'error');
+            console.error('Keyboard shortcuts error:', error);
+        }
+    }
+
+    function handleKeyboardShortcut(event) {
+        try {
+            const state = getState();
+            const shortcuts = state?.ui?.shortcuts || [];
+
+            // Check if we're in an input field
+            if (event.target instanceof HTMLInputElement || 
+                event.target instanceof HTMLTextAreaElement) {
+                return;
+            }
+
+            // Check for shortcuts
+            const shortcut = shortcuts.find(s => {
+                const keys = s.keys.toLowerCase().split('+');
+                return keys.every(key => {
+                    switch (key) {
+                        case 'ctrl': return event.ctrlKey;
+                        case 'alt': return event.altKey;
+                        case 'shift': return event.shiftKey;
+                        default: return event.key.toLowerCase() === key;
+                    }
+                });
+            });
+
+            if (shortcut) {
+                event.preventDefault();
+                switch (shortcut.action) {
+                    case 'scan':
+                        if (state.ui.elements?.scanBtn) {
+                            state.ui.elements.scanBtn.click();
+                        }
+                        break;
+                    case 'generate':
+                        if (state.ui.elements?.generateBtn) {
+                            state.ui.elements.generateBtn.click();
+                        }
+                        break;
+                    case 'clear':
+                        if (state.ui.elements?.clearBtn) {
+                            state.ui.elements.clearBtn.click();
+                        }
+                        break;
+                    case 'search':
+                        const searchInput = safeQuerySelector(state.ui.elements?.container, '#mm-search');
+                        if (searchInput instanceof HTMLInputElement) {
+                            searchInput.focus();
+                        }
+                        break;
+                    case 'toggle':
+                        const container = state.ui.elements?.container;
+                        if (container instanceof HTMLElement) {
+                            container.classList.toggle('mm-minimized');
+                        }
+                        break;
+                }
+            }
+        } catch (error) {
+            log(`Keyboard shortcut error: ${error.message}`, 'error');
+            console.error('Keyboard shortcut error:', error);
+        }
+    }
+
+    function loadPreferences() {
+        try {
+            // Get saved preferences
+            const savedPreferences = GM_getValue('preferences');
+            if (!savedPreferences) {
+                log('No saved preferences found, using defaults', 'info');
+                return;
+            }
+
+            // Parse saved preferences
+            const preferences = JSON.parse(savedPreferences);
+            if (!preferences || typeof preferences !== 'object') {
+                throw new Error('Invalid preferences format');
+            }
+
+            // Update state with saved preferences
+            updateState({
+                preferences: {
+                    ...getState().preferences,
+                    ...preferences
+                }
+            });
+
+            // Update UI elements with saved preferences
+            const { elements } = state.ui;
+            if (elements?.container) {
+                const recursiveCheckbox = safeQuerySelector(elements.container, '#mm-recursive');
+                if (recursiveCheckbox instanceof HTMLInputElement) {
+                    recursiveCheckbox.checked = preferences.recursive ?? true;
+                }
+
+                const skipExternalCheckbox = safeQuerySelector(elements.container, '#mm-skip-external');
+                if (skipExternalCheckbox instanceof HTMLInputElement) {
+                    skipExternalCheckbox.checked = preferences.skipExternal ?? true;
+                }
+
+                const maxDepthInput = safeQuerySelector(elements.container, '#mm-max-depth');
+                if (maxDepthInput instanceof HTMLInputElement) {
+                    maxDepthInput.value = (preferences.maxDepth ?? 10).toString();
+                }
+            }
+
+            log('Preferences loaded successfully', 'success');
+        } catch (error) {
+            log(`Failed to load preferences: ${error.message}`, 'error');
+            console.error('Preferences loading error:', error);
+        }
+    }
+
+    function savePreferences() {
+        try {
+            const state = getState();
+            const { elements } = state.ui;
+
+            if (!elements?.container) {
+                throw new Error('Container not initialized');
+            }
+
+            // Get current preferences from UI elements
+            const recursiveCheckbox = safeQuerySelector(elements.container, '#mm-recursive');
+            const skipExternalCheckbox = safeQuerySelector(elements.container, '#mm-skip-external');
+            const maxDepthInput = safeQuerySelector(elements.container, '#mm-max-depth');
+
+            const preferences = {
+                recursive: recursiveCheckbox instanceof HTMLInputElement ? recursiveCheckbox.checked : true,
+                skipExternal: skipExternalCheckbox instanceof HTMLInputElement ? skipExternalCheckbox.checked : true,
+                maxDepth: maxDepthInput instanceof HTMLInputElement ? parseInt(maxDepthInput.value) || 10 : 10
+            };
+
+            // Save to GM storage
+            GM_setValue('preferences', JSON.stringify(preferences));
+
+            // Update state
+            updateState({
+                preferences: {
+                    ...state.preferences,
+                    ...preferences
+                }
+            });
+
+            log('Preferences saved successfully', 'success');
+        } catch (error) {
+            log(`Failed to save preferences: ${error.message}`, 'error');
+            console.error('Preferences saving error:', error);
+        }
+    }
+
+    function handleRecursiveChange(e) {
+        try {
+            const target = e.target;
+            if (!(target instanceof HTMLInputElement)) {
+                return;
+            }
+            
+            updateState({
+                preferences: {
+                    ...getState().preferences,
+                    recursive: target.checked
+                }
+            });
+            savePreferences();
+        } catch (error) {
+            log(`Failed to handle recursive change: ${error.message}`, 'error');
+            console.error('Recursive change error:', error);
+        }
+    }
+
+    function handleSkipExternalChange(e) {
+        try {
+            const target = e.target;
+            if (!(target instanceof HTMLInputElement)) {
+                return;
+            }
+            
+            updateState({
+                preferences: {
+                    ...getState().preferences,
+                    skipExternal: target.checked
+                }
+            });
+            savePreferences();
+        } catch (error) {
+            log(`Failed to handle skip external change: ${error.message}`, 'error');
+            console.error('Skip external change error:', error);
+        }
+    }
+
+    function handleMaxDepthChange(e) {
+        try {
+            const target = e.target;
+            if (!(target instanceof HTMLInputElement)) {
+                return;
+            }
+            
+            const value = parseInt(target.value) || 10;
+            updateState({
+                preferences: {
+                    ...getState().preferences,
+                    maxDepth: value
+                }
+            });
+            savePreferences();
+        } catch (error) {
+            log(`Failed to handle max depth change: ${error.message}`, 'error');
+            console.error('Max depth change error:', error);
+        }
+    }
+
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -1266,7 +1011,6 @@ function updateState(newState) {
         }
     }
 
-    // Fetch with timeout and error handling
     async function fetchWithTimeout(url, options = {}) {
         const controller = new AbortController();
         const timeout = options.timeout || store.getState().timeoutMs;
@@ -1293,7 +1037,6 @@ function updateState(newState) {
         }
     }
 
-    // Enhanced file size fetching with retry
     async function getFileSize(url) {
         for (let attempt = 1; attempt <= store.getState().maxRetries; attempt++) {
             try {
@@ -1320,7 +1063,6 @@ function updateState(newState) {
         }
     }
 
-    // Safe parsing with error handling
     function safeParseYear(str) {
         try {
             const year = parseInt(str.match(/\b(19|20)\d{2}\b/)?.[0]);
@@ -1442,7 +1184,6 @@ function updateState(newState) {
         }
     }
 
-    // Helper Functions
     function updateStats() {
         const { elements } = store.getState().ui;
         const totalCount = elements.totalCount;
@@ -1521,7 +1262,6 @@ function updateState(newState) {
         return filtered;
     }
 
-    // UI Updates
     function updateButtons() {
         const { elements } = store.getState().ui;
         const scanBtn = elements.scanBtn;
@@ -1531,7 +1271,6 @@ function updateState(newState) {
         if (generateBtn) generateBtn.disabled = store.getState().videos.length === 0;
     }
 
-    // Draggable Functionality
     function makeDraggable(element) {
         const header = element.querySelector('#mm-header');
         let isDragging = false;
@@ -1571,7 +1310,6 @@ function updateState(newState) {
         }
     }
 
-    // Loading indicator management
     function showLoading(operation) {
         updateState({ loading: { ...getState().loading, [operation]: true } });
         updateLoadingUI();
@@ -1626,7 +1364,6 @@ function updateState(newState) {
         }
     }
 
-    // Tooltip management
     function addTooltips() {
         const tooltips = {
             'mm-scan-btn': 'Start scanning for media files',
@@ -1721,7 +1458,6 @@ function updateState(newState) {
         });
     }
 
-    // Add tooltip styles
     GM_addStyle(`
         .mm-tooltip {
             position: fixed;
@@ -1789,7 +1525,6 @@ function updateState(newState) {
         }
     `);
 
-    // Styles
     GM_addStyle(`
         :root {
             --bg-primary: rgba(18, 18, 18, 0.95);
@@ -1902,7 +1637,7 @@ function updateState(newState) {
             padding: 8px 15px;
             border: none;
             background: transparent;
-            color: var(--text-secondary);
+            color: var (--text-secondary);
             cursor: pointer;
             border-radius: 6px;
             transition: all 0.2s ease;
@@ -1984,7 +1719,7 @@ function updateState(newState) {
             padding: 10px 20px;
             border: none;
             border-radius: 8px;
-            background: var(--accent);
+            background: var (--accent);
             color: white;
             cursor: pointer;
             flex: 1;
@@ -2230,7 +1965,7 @@ function updateState(newState) {
         .mm-shortcuts-list {
             margin-top: 15px;
             padding: 12px;
-            background: var(--bg-tertiary);
+            background: var (--bg-tertiary);
             border-radius: 8px;
         }
 
@@ -2372,7 +2107,6 @@ function updateState(newState) {
         }
     `);
 
-    // Add log-related styles
     GM_addStyle(`
         .mm-log-entry {
             padding: 4px 8px;
@@ -2420,12 +2154,6 @@ function updateState(newState) {
         }
         
         #mm-clear-console {
-            padding: 2px 8px;
-            font-size: 12px;
-            background: transparent;
-            border: 1px solid var(--border-color);
-            color: var(--text-color);
-            cursor: pointer;
             border-radius: 4px;
         }
         
@@ -2434,431 +2162,127 @@ function updateState(newState) {
         }
     `);
 
-    // Initialize the application
-    function initialize() {
-        // Wait for document to be ready
-        document.addEventListener('DOMContentLoaded', () => {
-            try {
-                // Create store with initial state
-                const store = createStore(initialState);
-
-                // Load saved preferences
-                loadPreferences();
-
-                // Initialize keyboard shortcuts
-                initializeKeyboardShortcuts();
-
-                // Create and initialize interface
-                const container = createInterface();
-                if (!container) {
-                    console.error('Failed to create interface container');
-                    return;
-                }
-
-                // Cache DOM elements after interface is created
-                cacheElements();
-
-                // Initialize other components
-                initializeResizeObserver();
-                initializeDragAndDrop();
-                initializeEventListeners();
-                populateYearFilter();
-
-                // Update UI state
-                updateButtons();
-                updateStats();
-                updateResults();
-
-                log('MediaMagnet initialized successfully', 'success');
-            } catch (error) {
-                log(`Initialization failed: ${error.message}`, 'error');
-                console.error('MediaMagnet initialization error:', error);
-            }
-        });
-    }
-
-    // Start initialization
-    initialize();
-
-    function isSameOrigin(url) {
+    function safeCreateElement(tagName, options = {}) {
         try {
-            const urlObj = new URL(url, window.location.origin);
-            return urlObj.origin === window.location.origin;
-        } catch (error) {
-            return false;
-        }
-    }
-
-    function updateState(newState) {
-        store.setState(newState);
-    }
-
-    function getState() {
-        return store.getState();
-    }
-})();
-
-// Load saved preferences from GM storage
-function loadPreferences() {
-    try {
-        // Get saved preferences
-        const savedPreferences = GM_getValue('preferences');
-        if (!savedPreferences) {
-            log('No saved preferences found, using defaults', 'info');
-            return;
-        }
-
-        // Parse saved preferences
-        const preferences = JSON.parse(savedPreferences);
-        if (!preferences || typeof preferences !== 'object') {
-            throw new Error('Invalid preferences format');
-        }
-
-        // Update state with saved preferences
-        updateState({
-            preferences: {
-                ...getState().preferences,
-                ...preferences
-            }
-        });
-
-        // Update UI elements with saved preferences
-        const { elements } = state.ui;
-        if (elements?.container) {
-            const recursiveCheckbox = safeQuerySelector(elements.container, '#mm-recursive');
-            if (recursiveCheckbox instanceof HTMLInputElement) {
-                recursiveCheckbox.checked = preferences.recursive ?? true;
-            }
-
-            const skipExternalCheckbox = safeQuerySelector(elements.container, '#mm-skip-external');
-            if (skipExternalCheckbox instanceof HTMLInputElement) {
-                skipExternalCheckbox.checked = preferences.skipExternal ?? true;
-            }
-
-            const maxDepthInput = safeQuerySelector(elements.container, '#mm-max-depth');
-            if (maxDepthInput instanceof HTMLInputElement) {
-                maxDepthInput.value = (preferences.maxDepth ?? 10).toString();
-            }
-        }
-
-        log('Preferences loaded successfully', 'success');
-    } catch (error) {
-        log(`Failed to load preferences: ${error.message}`, 'error');
-        console.error('Preferences loading error:', error);
-    }
-}
-
-// Save preferences to GM storage
-function savePreferences() {
-    try {
-        const state = getState();
-        const { elements } = state.ui;
-
-        if (!elements?.container) {
-            throw new Error('Container not initialized');
-        }
-
-        // Get current preferences from UI elements
-        const recursiveCheckbox = safeQuerySelector(elements.container, '#mm-recursive');
-        const skipExternalCheckbox = safeQuerySelector(elements.container, '#mm-skip-external');
-        const maxDepthInput = safeQuerySelector(elements.container, '#mm-max-depth');
-
-        const preferences = {
-            recursive: recursiveCheckbox instanceof HTMLInputElement ? recursiveCheckbox.checked : true,
-            skipExternal: skipExternalCheckbox instanceof HTMLInputElement ? skipExternalCheckbox.checked : true,
-            maxDepth: maxDepthInput instanceof HTMLInputElement ? parseInt(maxDepthInput.value) || 10 : 10
-        };
-
-        // Save to GM storage
-        GM_setValue('preferences', JSON.stringify(preferences));
-
-        // Update state
-        updateState({
-            preferences: {
-                ...state.preferences,
-                ...preferences
-            }
-        });
-
-        log('Preferences saved successfully', 'success');
-    } catch (error) {
-        log(`Failed to save preferences: ${error.message}`, 'error');
-        console.error('Preferences saving error:', error);
-    }
-}
-
-// Handle preference changes
-function handleRecursiveChange(e) {
-    try {
-        const target = e.target;
-        if (!(target instanceof HTMLInputElement)) {
-            return;
-        }
-        
-        updateState({
-            preferences: {
-                ...getState().preferences,
-                recursive: target.checked
-            }
-        });
-        savePreferences();
-    } catch (error) {
-        log(`Failed to handle recursive change: ${error.message}`, 'error');
-        console.error('Recursive change error:', error);
-    }
-}
-
-function handleSkipExternalChange(e) {
-    try {
-        const target = e.target;
-        if (!(target instanceof HTMLInputElement)) {
-            return;
-        }
-        
-        updateState({
-            preferences: {
-                ...getState().preferences,
-                skipExternal: target.checked
-            }
-        });
-        savePreferences();
-    } catch (error) {
-        log(`Failed to handle skip external change: ${error.message}`, 'error');
-        console.error('Skip external change error:', error);
-    }
-}
-
-function handleMaxDepthChange(e) {
-    try {
-        const target = e.target;
-        if (!(target instanceof HTMLInputElement)) {
-            return;
-        }
-        
-        const value = parseInt(target.value) || 10;
-        updateState({
-            preferences: {
-                ...getState().preferences,
-                maxDepth: value
-            }
-        });
-        savePreferences();
-    } catch (error) {
-        log(`Failed to handle max depth change: ${error.message}`, 'error');
-        console.error('Max depth change error:', error);
-    }
-}
-
-// Initialize keyboard shortcuts
-function initializeKeyboardShortcuts() {
-    try {
-        const state = getState();
-        const shortcuts = state?.ui?.shortcuts || [];
-
-        // Remove existing listeners
-        document.removeEventListener('keydown', handleKeyboardShortcut);
-
-        // Add new listener
-        document.addEventListener('keydown', handleKeyboardShortcut);
-
-        log('Keyboard shortcuts initialized', 'success');
-    } catch (error) {
-        log(`Failed to initialize keyboard shortcuts: ${error.message}`, 'error');
-        console.error('Keyboard shortcuts error:', error);
-    }
-}
-
-// Handle keyboard shortcuts
-function handleKeyboardShortcut(event) {
-    try {
-        const state = getState();
-        const shortcuts = state?.ui?.shortcuts || [];
-
-        // Check if we're in an input field
-        if (event.target instanceof HTMLInputElement || 
-            event.target instanceof HTMLTextAreaElement) {
-            return;
-        }
-
-        // Check for shortcuts
-        const shortcut = shortcuts.find(s => {
-            const keys = s.keys.toLowerCase().split('+');
-            return keys.every(key => {
-                switch (key) {
-                    case 'ctrl': return event.ctrlKey;
-                    case 'alt': return event.altKey;
-                    case 'shift': return event.shiftKey;
-                    default: return event.key.toLowerCase() === key;
+            const element = document.createElement(tagName);
+            Object.entries(options).forEach(([key, value]) => {
+                if (key === 'className') {
+                    element.className = value;
+                } else if (key === 'id') {
+                    element.id = value;
+                } else {
+                    element[key] = value;
                 }
             });
-        });
-
-        if (shortcut) {
-            event.preventDefault();
-            switch (shortcut.action) {
-                case 'scan':
-                    if (state.ui.elements?.scanBtn) {
-                        state.ui.elements.scanBtn.click();
-                    }
-                    break;
-                case 'generate':
-                    if (state.ui.elements?.generateBtn) {
-                        state.ui.elements.generateBtn.click();
-                    }
-                    break;
-                case 'clear':
-                    if (state.ui.elements?.clearBtn) {
-                        state.ui.elements.clearBtn.click();
-                    }
-                    break;
-                case 'search':
-                    const searchInput = safeQuerySelector(state.ui.elements?.container, '#mm-search');
-                    if (searchInput instanceof HTMLInputElement) {
-                        searchInput.focus();
-                    }
-                    break;
-                case 'toggle':
-                    const container = state.ui.elements?.container;
-                    if (container instanceof HTMLElement) {
-                        container.classList.toggle('mm-minimized');
-                    }
-                    break;
-            }
-        }
-    } catch (error) {
-        log(`Keyboard shortcut error: ${error.message}`, 'error');
-        console.error('Keyboard shortcut error:', error);
-    }
-}
-
-// Helper function to safely create DOM elements
-function safeCreateElement(tagName, options = {}) {
-    try {
-        const element = document.createElement(tagName);
-        Object.entries(options).forEach(([key, value]) => {
-            if (key === 'className') {
-                element.className = value;
-            } else if (key === 'id') {
-                element.id = value;
-            } else {
-                element[key] = value;
-            }
-        });
-        return element;
-    } catch (error) {
-        console.error('Failed to create element:', error);
-        return null;
-    }
-}
-
-// Helper function to safely query DOM elements
-function safeQuerySelector(parent, selector) {
-    try {
-        if (!parent || !(parent instanceof Element)) {
-            throw new Error('Invalid parent element');
-        }
-        return parent.querySelector(selector);
-    } catch (error) {
-        console.error('Failed to query selector:', error);
-        return null;
-    }
-}
-
-// Helper function to safely append child elements
-function safeAppendChild(parent, child) {
-    try {
-        if (!parent || !child) {
-            throw new Error('Invalid parent or child element');
-        }
-        return parent.appendChild(child);
-    } catch (error) {
-        console.error('Failed to append child:', error);
-        return null;
-    }
-}
-
-// Helper function to safely remove child elements
-function safeRemoveChild(parent, child) {
-    try {
-        if (!parent || !child) {
-            throw new Error('Invalid parent or child element');
-        }
-        return parent.removeChild(child);
-    } catch (error) {
-        console.error('Failed to remove child:', error);
-        return null;
-    }
-}
-
-// Initialize the application
-function initializeApp() {
-    try {
-        // Create store with initial state
-        const store = createStore(initialState);
-
-        // Load saved preferences
-        loadPreferences();
-
-        // Initialize keyboard shortcuts
-        initializeKeyboardShortcuts();
-
-        // Create and initialize interface
-        const container = createInterface();
-        if (!container) {
-            console.error('Failed to create interface container');
-            return;
-        }
-
-        // Cache DOM elements after interface is created
-        cacheElements();
-
-        // Initialize other components
-        initializeResizeObserver();
-        initializeDragAndDrop();
-        initializeEventListeners();
-        populateYearFilter();
-
-        // Update UI state
-        updateButtons();
-        updateStats();
-        updateResults();
-
-        log('MediaMagnet initialized successfully', 'success');
-    } catch (error) {
-        log(`Initialization failed: ${error.message}`, 'error');
-        console.error('MediaMagnet initialization error:', error);
-    }
-}
-
-// Create interface elements
-function createInterface() {
-    try {
-        // Check if document.body exists
-        if (!document.body) {
-            console.error('Document body not available');
+            return element;
+        } catch (error) {
+            console.error('Failed to create element:', error);
             return null;
         }
-
-        // Check if interface already exists
-        const existingContainer = document.querySelector('#mediamagnet');
-        if (existingContainer) {
-            return existingContainer;
-        }
-
-        // Create main container
-        const container = document.createElement('div');
-        container.id = 'mediamagnet';
-        container.className = 'mm-container';
-        document.body.appendChild(container);
-
-        return container;
-    } catch (error) {
-        console.error('Interface creation error:', error);
-        return null;
     }
-}
 
-    // Initialize when the document is ready
+    function safeQuerySelector(parent, selector) {
+        try {
+            if (!parent || !(parent instanceof Element)) {
+                throw new Error('Invalid parent element');
+            }
+            return parent.querySelector(selector);
+        } catch (error) {
+            console.error('Failed to query selector:', error);
+            return null;
+        }
+    }
+
+    function safeAppendChild(parent, child) {
+        try {
+            if (!parent || !child) {
+                throw new Error('Invalid parent or child element');
+            }
+            return parent.appendChild(child);
+        } catch (error) {
+            console.error('Failed to append child:', error);
+            return null;
+        }
+    }
+
+    function safeRemoveChild(parent, child) {
+        try {
+            if (!parent || !child) {
+                throw new Error('Invalid parent or child element');
+            }
+            return parent.removeChild(child);
+        } catch (error) {
+            console.error('Failed to remove child:', error);
+            return null;
+        }
+    }
+
+    function initializeApp() {
+        try {
+            // Create store with initial state
+            const store = createStore(initialState);
+
+            // Load saved preferences
+            loadPreferences();
+
+            // Initialize keyboard shortcuts
+            initializeKeyboardShortcuts();
+
+            // Create and initialize interface
+            const container = createInterface();
+            if (!container) {
+                console.error('Failed to create interface container');
+                return;
+            }
+
+            // Cache DOM elements after interface is created
+            cacheElements();
+
+            // Initialize other components
+            initializeResizeObserver();
+            initializeDragAndDrop();
+            initializeEventListeners();
+            populateYearFilter();
+
+            // Update UI state
+            updateButtons();
+            updateStats();
+            updateResults();
+
+            log('MediaMagnet initialized successfully', 'success');
+        } catch (error) {
+            log(`Initialization failed: ${error.message}`, 'error');
+            console.error('MediaMagnet initialization error:', error);
+        }
+    }
+
+    function createInterface() {
+        try {
+            // Check if document.body exists
+            if (!document.body) {
+                console.error('Document body not available');
+                return null;
+            }
+
+            // Check if interface already exists
+            const existingContainer = document.querySelector('#mediamagnet');
+            if (existingContainer) {
+                return existingContainer;
+            }
+
+            // Create main container
+            const container = document.createElement('div');
+            container.id = 'mediamagnet';
+            container.className = 'mm-container';
+            document.body.appendChild(container);
+
+            return container;
+        } catch (error) {
+            console.error('Interface creation error:', error);
+            return null;
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         try {
             const container = createInterface();
@@ -2872,44 +2296,81 @@ function createInterface() {
         }
     });
 
-// Create interface elements
-function createInterface() {
-    try {
-        // Check if document.body exists
-        if (!document.body) {
-            console.error('Document body not available');
+    GM_registerMenuCommand('Toggle MediaMagnet', () => {
+        const container = document.querySelector('#mm-container');
+        if (container) {
+            container.style.display = container.style.display === 'none' ? 'block' : 'none';
+        }
+    });
+
+    function processVideo(video) {
+        const errors = validateVideo(video);
+        if (errors.length > 0) {
+            log(`Invalid video data: ${errors.join(', ')}`, 'error');
             return null;
         }
-
-        // Check if interface already exists
-        const existingContainer = document.querySelector('#mediamagnet');
-        if (existingContainer) {
-            return existingContainer;
-        }
-
-        // Create main container
-        const container = document.createElement('div');
-        container.id = 'mediamagnet';
-        container.className = 'mm-container';
-        document.body.appendChild(container);
-
-        return container;
-    } catch (error) {
-        console.error('Interface creation error:', error);
-        return null;
+        return video;
     }
-}
 
-// Initialize when document is ready
-document.addEventListener('DOMContentLoaded', function() {
-    try {
-        const container = createInterface();
-        if (!container) {
-            console.error('Failed to create interface container');
-            return;
-        }
-        log('MediaMagnet initialized successfully', 'success');
-    } catch (error) {
-        console.error('MediaMagnet initialization error:', error);
+    cleanup.addTask(() => {
+        tooltip.cleanup();
+        store.getState().ui.resizeObserver?.disconnect();
+        document.removeEventListener('keydown', handleKeyboardShortcut);
+    });
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
     }
-});
+
+    function init() {
+        try {
+            // Apply styles first
+            Object.values(styles).forEach(style => {
+                if (typeof style === 'string') {
+                    GM_addStyle(style);
+                }
+            });
+
+            // Initialize tooltip
+            tooltip.init();
+
+            // Create interface
+            const container = createInterface();
+            if (!container) {
+                throw new Error('Failed to create interface');
+            }
+
+            // Initialize the rest
+            loadPreferences();
+            initializeKeyboardShortcuts();
+            initializeResizeObserver();
+            initializeEventListeners();
+            populateYearFilter();
+
+            // Update initial UI state
+            updateButtons();
+            updateStats();
+            updateResults();
+
+            log('MediaMagnet initialized successfully', 'success');
+        } catch (error) {
+            console.error('MediaMagnet initialization error:', error);
+            log(`Initialization failed: ${error.message}`, 'error');
+        }
+    }
+
+    GM_registerMenuCommand('Toggle MediaMagnet', () => {
+        const container = document.querySelector('#mm-container');
+        if (container) {
+            container.style.display = container.style.display === 'none' ? 'block' : 'none';
+        }
+    });
+
+    cleanup.addTask(() => {
+        tooltip.cleanup();
+        store.getState().ui.resizeObserver?.disconnect();
+        document.removeEventListener('keydown', handleKeyboardShortcut);
+    });
+})();
