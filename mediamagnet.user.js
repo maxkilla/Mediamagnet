@@ -1962,7 +1962,7 @@ function updateState(newState) {
             padding: 8px;
             background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
+            border-radius: 4px;
             color: var(--text-primary);
             font-size: 14px;
             transition: all 0.2s ease;
@@ -2437,60 +2437,44 @@ function updateState(newState) {
     // Initialize the application
     function initialize() {
         // Wait for document to be ready
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                try {
-                    initializeApp();
-                } catch (error) {
-                    console.error('MediaMagnet initialization error:', error);
-                }
-            });
-        } else {
+        document.addEventListener('DOMContentLoaded', () => {
             try {
-                initializeApp();
+                // Create store with initial state
+                const store = createStore(initialState);
+
+                // Load saved preferences
+                loadPreferences();
+
+                // Initialize keyboard shortcuts
+                initializeKeyboardShortcuts();
+
+                // Create and initialize interface
+                const container = createInterface();
+                if (!container) {
+                    console.error('Failed to create interface container');
+                    return;
+                }
+
+                // Cache DOM elements after interface is created
+                cacheElements();
+
+                // Initialize other components
+                initializeResizeObserver();
+                initializeDragAndDrop();
+                initializeEventListeners();
+                populateYearFilter();
+
+                // Update UI state
+                updateButtons();
+                updateStats();
+                updateResults();
+
+                log('MediaMagnet initialized successfully', 'success');
             } catch (error) {
+                log(`Initialization failed: ${error.message}`, 'error');
                 console.error('MediaMagnet initialization error:', error);
             }
-        }
-    }
-
-    // Main initialization function
-    function initializeApp() {
-        try {
-            // Create store with initial state
-            const store = createStore(initialState);
-
-            // Load saved preferences
-            loadPreferences();
-
-            // Initialize keyboard shortcuts
-            initializeKeyboardShortcuts();
-
-            // Create and initialize interface
-            const container = createInterface();
-            if (!container) {
-                throw new Error('Failed to create interface container');
-            }
-
-            // Cache DOM elements after interface is created
-            cacheElements();
-
-            // Initialize other components
-            initializeResizeObserver();
-            initializeDragAndDrop();
-            initializeEventListeners();
-            populateYearFilter();
-
-            // Update UI state
-            updateButtons();
-            updateStats();
-            updateResults();
-
-            log('MediaMagnet initialized successfully', 'success');
-        } catch (error) {
-            log(`Initialization failed: ${error.message}`, 'error');
-            console.error('MediaMagnet initialization error:', error);
-        }
+        });
     }
 
     // Start initialization
@@ -2809,15 +2793,39 @@ function safeRemoveChild(parent, child) {
 // Initialize the application
 function initializeApp() {
     try {
-        // Create and inject UI elements first
+        // Create store with initial state
+        const store = createStore(initialState);
+
+        // Load saved preferences
+        loadPreferences();
+
+        // Initialize keyboard shortcuts
+        initializeKeyboardShortcuts();
+
+        // Create and initialize interface
         const container = createInterface();
         if (!container) {
             console.error('Failed to create interface container');
             return;
         }
 
+        // Cache DOM elements after interface is created
+        cacheElements();
+
+        // Initialize other components
+        initializeResizeObserver();
+        initializeDragAndDrop();
+        initializeEventListeners();
+        populateYearFilter();
+
+        // Update UI state
+        updateButtons();
+        updateStats();
+        updateResults();
+
         log('MediaMagnet initialized successfully', 'success');
     } catch (error) {
+        log(`Initialization failed: ${error.message}`, 'error');
         console.error('MediaMagnet initialization error:', error);
     }
 }
@@ -2851,18 +2859,57 @@ function createInterface() {
 }
 
     // Initialize when the document is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            try {
-                initializeApp();
-            } catch (error) {
-                console.error('MediaMagnet initialization error:', error);
-            }
-        });
-    } else {
+    document.addEventListener('DOMContentLoaded', function() {
         try {
-            initializeApp();
+            const container = createInterface();
+            if (!container) {
+                console.error('Failed to create interface container');
+                return;
+            }
+            log('MediaMagnet initialized successfully', 'success');
         } catch (error) {
             console.error('MediaMagnet initialization error:', error);
         }
+    });
+
+// Create interface elements
+function createInterface() {
+    try {
+        // Check if document.body exists
+        if (!document.body) {
+            console.error('Document body not available');
+            return null;
+        }
+
+        // Check if interface already exists
+        const existingContainer = document.querySelector('#mediamagnet');
+        if (existingContainer) {
+            return existingContainer;
+        }
+
+        // Create main container
+        const container = document.createElement('div');
+        container.id = 'mediamagnet';
+        container.className = 'mm-container';
+        document.body.appendChild(container);
+
+        return container;
+    } catch (error) {
+        console.error('Interface creation error:', error);
+        return null;
     }
+}
+
+// Initialize when document is ready
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const container = createInterface();
+        if (!container) {
+            console.error('Failed to create interface container');
+            return;
+        }
+        log('MediaMagnet initialized successfully', 'success');
+    } catch (error) {
+        console.error('MediaMagnet initialization error:', error);
+    }
+});
