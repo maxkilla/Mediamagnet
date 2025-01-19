@@ -64,9 +64,8 @@ const store = createStore(initialState);
 // Helper function to log messages
 function log(message, type = 'info') {
     try {
-        const state = getState();
-        const consoleElement = state.ui?.elements?.console;
-        
+        // If console element doesn't exist yet, just use browser console
+        const consoleElement = document.querySelector('#mm-console');
         if (!consoleElement) {
             console.log(`${type.toUpperCase()}: ${message}`);
             return;
@@ -2437,11 +2436,21 @@ function updateState(newState) {
 
     // Initialize the application
     function initialize() {
-        // Wait for DOM to be ready
+        // Wait for document to be ready
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeApp);
+            document.addEventListener('DOMContentLoaded', () => {
+                try {
+                    initializeApp();
+                } catch (error) {
+                    console.error('MediaMagnet initialization error:', error);
+                }
+            });
         } else {
-            initializeApp();
+            try {
+                initializeApp();
+            } catch (error) {
+                console.error('MediaMagnet initialization error:', error);
+            }
         }
     }
 
@@ -2505,136 +2514,236 @@ function updateState(newState) {
     }
 })();
 
-// Helper function to create interface elements
-function createInterface() {
+// Load saved preferences from GM storage
+function loadPreferences() {
     try {
-        // Create main container
-        const container = safeCreateElement('div', { id: 'mediamagnet', className: 'mm-container' });
-        if (!container) {
-            throw new Error('Failed to create container');
+        // Get saved preferences
+        const savedPreferences = GM_getValue('preferences');
+        if (!savedPreferences) {
+            log('No saved preferences found, using defaults', 'info');
+            return;
         }
 
-        // Create header
-        const header = safeCreateElement('div', { className: 'mm-header' });
-        if (!header) {
-            throw new Error('Failed to create header');
+        // Parse saved preferences
+        const preferences = JSON.parse(savedPreferences);
+        if (!preferences || typeof preferences !== 'object') {
+            throw new Error('Invalid preferences format');
         }
 
-        // Create title
-        const title = safeCreateElement('h1', { className: 'mm-title' });
-        if (!title) {
-            throw new Error('Failed to create title');
-        }
-        title.textContent = 'MediaMagnet';
+        // Update state with saved preferences
+        updateState({
+            preferences: {
+                ...getState().preferences,
+                ...preferences
+            }
+        });
 
-        // Create controls
-        const controls = safeCreateElement('div', { className: 'mm-controls' });
-        if (!controls) {
-            throw new Error('Failed to create controls');
-        }
+        // Update UI elements with saved preferences
+        const { elements } = state.ui;
+        if (elements?.container) {
+            const recursiveCheckbox = safeQuerySelector(elements.container, '#mm-recursive');
+            if (recursiveCheckbox instanceof HTMLInputElement) {
+                recursiveCheckbox.checked = preferences.recursive ?? true;
+            }
 
-        // Create buttons
-        const scanBtn = safeCreateElement('button', { id: 'mm-scan', className: 'mm-button' });
-        if (!scanBtn) {
-            throw new Error('Failed to create scan button');
-        }
-        scanBtn.textContent = 'Scan Directory';
+            const skipExternalCheckbox = safeQuerySelector(elements.container, '#mm-skip-external');
+            if (skipExternalCheckbox instanceof HTMLInputElement) {
+                skipExternalCheckbox.checked = preferences.skipExternal ?? true;
+            }
 
-        const generateBtn = safeCreateElement('button', { id: 'mm-generate', className: 'mm-button' });
-        if (!generateBtn) {
-            throw new Error('Failed to create generate button');
-        }
-        generateBtn.textContent = 'Generate Report';
-        generateBtn.disabled = true;
-
-        const clearBtn = safeCreateElement('button', { id: 'mm-clear', className: 'mm-button' });
-        if (!clearBtn) {
-            throw new Error('Failed to create clear button');
-        }
-        clearBtn.textContent = 'Clear Results';
-        clearBtn.disabled = true;
-
-        // Create options
-        const options = safeCreateElement('div', { className: 'mm-options' });
-        if (!options) {
-            throw new Error('Failed to create options');
+            const maxDepthInput = safeQuerySelector(elements.container, '#mm-max-depth');
+            if (maxDepthInput instanceof HTMLInputElement) {
+                maxDepthInput.value = (preferences.maxDepth ?? 10).toString();
+            }
         }
 
-        // Create recursive checkbox
-        const recursiveLabel = safeCreateElement('label', { className: 'mm-option' });
-        if (!recursiveLabel) {
-            throw new Error('Failed to create recursive label');
-        }
-        const recursiveCheckbox = safeCreateElement('input', { id: 'mm-recursive', type: 'checkbox' });
-        if (!recursiveCheckbox) {
-            throw new Error('Failed to create recursive checkbox');
-        }
-        recursiveCheckbox.checked = true;
-        recursiveLabel.appendChild(recursiveCheckbox);
-        recursiveLabel.appendChild(document.createTextNode('Recursive'));
-
-        // Create skip external checkbox
-        const skipExternalLabel = safeCreateElement('label', { className: 'mm-option' });
-        if (!skipExternalLabel) {
-            throw new Error('Failed to create skip external label');
-        }
-        const skipExternalCheckbox = safeCreateElement('input', { id: 'mm-skip-external', type: 'checkbox' });
-        if (!skipExternalCheckbox) {
-            throw new Error('Failed to create skip external checkbox');
-        }
-        skipExternalCheckbox.checked = true;
-        skipExternalLabel.appendChild(skipExternalCheckbox);
-        skipExternalLabel.appendChild(document.createTextNode('Skip External'));
-
-        // Create max depth input
-        const maxDepthLabel = safeCreateElement('label', { className: 'mm-option' });
-        if (!maxDepthLabel) {
-            throw new Error('Failed to create max depth label');
-        }
-        const maxDepthInput = safeCreateElement('input', { id: 'mm-max-depth', type: 'number', min: '1', max: '100' });
-        if (!maxDepthInput) {
-            throw new Error('Failed to create max depth input');
-        }
-        maxDepthInput.value = '10';
-        maxDepthLabel.appendChild(document.createTextNode('Max Depth:'));
-        maxDepthLabel.appendChild(maxDepthInput);
-
-        // Create results container
-        const results = safeCreateElement('div', { id: 'mm-results', className: 'mm-results' });
-        if (!results) {
-            throw new Error('Failed to create results container');
-        }
-
-        // Create console
-        const console = safeCreateElement('div', { id: 'mm-console', className: 'mm-console' });
-        if (!console) {
-            throw new Error('Failed to create console');
-        }
-
-        // Assemble interface
-        options.appendChild(recursiveLabel);
-        options.appendChild(skipExternalLabel);
-        options.appendChild(maxDepthLabel);
-
-        controls.appendChild(scanBtn);
-        controls.appendChild(generateBtn);
-        controls.appendChild(clearBtn);
-        controls.appendChild(options);
-
-        header.appendChild(title);
-        header.appendChild(controls);
-
-        container.appendChild(header);
-        container.appendChild(results);
-        container.appendChild(console);
-
-        // Add to document
-        document.body.appendChild(container);
-
-        return container;
+        log('Preferences loaded successfully', 'success');
     } catch (error) {
-        console.error('Interface creation error:', error);
-        return null;
+        log(`Failed to load preferences: ${error.message}`, 'error');
+        console.error('Preferences loading error:', error);
+    }
+}
+
+// Save preferences to GM storage
+function savePreferences() {
+    try {
+        const state = getState();
+        const { elements } = state.ui;
+
+        if (!elements?.container) {
+            throw new Error('Container not initialized');
+        }
+
+        // Get current preferences from UI elements
+        const recursiveCheckbox = safeQuerySelector(elements.container, '#mm-recursive');
+        const skipExternalCheckbox = safeQuerySelector(elements.container, '#mm-skip-external');
+        const maxDepthInput = safeQuerySelector(elements.container, '#mm-max-depth');
+
+        const preferences = {
+            recursive: recursiveCheckbox instanceof HTMLInputElement ? recursiveCheckbox.checked : true,
+            skipExternal: skipExternalCheckbox instanceof HTMLInputElement ? skipExternalCheckbox.checked : true,
+            maxDepth: maxDepthInput instanceof HTMLInputElement ? parseInt(maxDepthInput.value) || 10 : 10
+        };
+
+        // Save to GM storage
+        GM_setValue('preferences', JSON.stringify(preferences));
+
+        // Update state
+        updateState({
+            preferences: {
+                ...state.preferences,
+                ...preferences
+            }
+        });
+
+        log('Preferences saved successfully', 'success');
+    } catch (error) {
+        log(`Failed to save preferences: ${error.message}`, 'error');
+        console.error('Preferences saving error:', error);
+    }
+}
+
+// Handle preference changes
+function handleRecursiveChange(e) {
+    try {
+        const target = e.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+        
+        updateState({
+            preferences: {
+                ...getState().preferences,
+                recursive: target.checked
+            }
+        });
+        savePreferences();
+    } catch (error) {
+        log(`Failed to handle recursive change: ${error.message}`, 'error');
+        console.error('Recursive change error:', error);
+    }
+}
+
+function handleSkipExternalChange(e) {
+    try {
+        const target = e.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+        
+        updateState({
+            preferences: {
+                ...getState().preferences,
+                skipExternal: target.checked
+            }
+        });
+        savePreferences();
+    } catch (error) {
+        log(`Failed to handle skip external change: ${error.message}`, 'error');
+        console.error('Skip external change error:', error);
+    }
+}
+
+function handleMaxDepthChange(e) {
+    try {
+        const target = e.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+        
+        const value = parseInt(target.value) || 10;
+        updateState({
+            preferences: {
+                ...getState().preferences,
+                maxDepth: value
+            }
+        });
+        savePreferences();
+    } catch (error) {
+        log(`Failed to handle max depth change: ${error.message}`, 'error');
+        console.error('Max depth change error:', error);
+    }
+}
+
+// Initialize keyboard shortcuts
+function initializeKeyboardShortcuts() {
+    try {
+        const state = getState();
+        const shortcuts = state?.ui?.shortcuts || [];
+
+        // Remove existing listeners
+        document.removeEventListener('keydown', handleKeyboardShortcut);
+
+        // Add new listener
+        document.addEventListener('keydown', handleKeyboardShortcut);
+
+        log('Keyboard shortcuts initialized', 'success');
+    } catch (error) {
+        log(`Failed to initialize keyboard shortcuts: ${error.message}`, 'error');
+        console.error('Keyboard shortcuts error:', error);
+    }
+}
+
+// Handle keyboard shortcuts
+function handleKeyboardShortcut(event) {
+    try {
+        const state = getState();
+        const shortcuts = state?.ui?.shortcuts || [];
+
+        // Check if we're in an input field
+        if (event.target instanceof HTMLInputElement || 
+            event.target instanceof HTMLTextAreaElement) {
+            return;
+        }
+
+        // Check for shortcuts
+        const shortcut = shortcuts.find(s => {
+            const keys = s.keys.toLowerCase().split('+');
+            return keys.every(key => {
+                switch (key) {
+                    case 'ctrl': return event.ctrlKey;
+                    case 'alt': return event.altKey;
+                    case 'shift': return event.shiftKey;
+                    default: return event.key.toLowerCase() === key;
+                }
+            });
+        });
+
+        if (shortcut) {
+            event.preventDefault();
+            switch (shortcut.action) {
+                case 'scan':
+                    if (state.ui.elements?.scanBtn) {
+                        state.ui.elements.scanBtn.click();
+                    }
+                    break;
+                case 'generate':
+                    if (state.ui.elements?.generateBtn) {
+                        state.ui.elements.generateBtn.click();
+                    }
+                    break;
+                case 'clear':
+                    if (state.ui.elements?.clearBtn) {
+                        state.ui.elements.clearBtn.click();
+                    }
+                    break;
+                case 'search':
+                    const searchInput = safeQuerySelector(state.ui.elements?.container, '#mm-search');
+                    if (searchInput instanceof HTMLInputElement) {
+                        searchInput.focus();
+                    }
+                    break;
+                case 'toggle':
+                    const container = state.ui.elements?.container;
+                    if (container instanceof HTMLElement) {
+                        container.classList.toggle('mm-minimized');
+                    }
+                    break;
+            }
+        }
+    } catch (error) {
+        log(`Keyboard shortcut error: ${error.message}`, 'error');
+        console.error('Keyboard shortcut error:', error);
     }
 }
 
@@ -2642,7 +2751,15 @@ function createInterface() {
 function safeCreateElement(tagName, options = {}) {
     try {
         const element = document.createElement(tagName);
-        Object.assign(element, options);
+        Object.entries(options).forEach(([key, value]) => {
+            if (key === 'className') {
+                element.className = value;
+            } else if (key === 'id') {
+                element.id = value;
+            } else {
+                element[key] = value;
+            }
+        });
         return element;
     } catch (error) {
         console.error('Failed to create element:', error);
@@ -2653,6 +2770,9 @@ function safeCreateElement(tagName, options = {}) {
 // Helper function to safely query DOM elements
 function safeQuerySelector(parent, selector) {
     try {
+        if (!parent || !(parent instanceof Element)) {
+            throw new Error('Invalid parent element');
+        }
         return parent.querySelector(selector);
     } catch (error) {
         console.error('Failed to query selector:', error);
@@ -2663,21 +2783,86 @@ function safeQuerySelector(parent, selector) {
 // Helper function to safely append child elements
 function safeAppendChild(parent, child) {
     try {
-        parent.appendChild(child);
-        return true;
+        if (!parent || !child) {
+            throw new Error('Invalid parent or child element');
+        }
+        return parent.appendChild(child);
     } catch (error) {
         console.error('Failed to append child:', error);
-        return false;
+        return null;
     }
 }
 
 // Helper function to safely remove child elements
 function safeRemoveChild(parent, child) {
     try {
-        parent.removeChild(child);
-        return true;
+        if (!parent || !child) {
+            throw new Error('Invalid parent or child element');
+        }
+        return parent.removeChild(child);
     } catch (error) {
         console.error('Failed to remove child:', error);
-        return false;
+        return null;
     }
 }
+
+// Initialize the application
+function initializeApp() {
+    try {
+        // Create and inject UI elements first
+        const container = createInterface();
+        if (!container) {
+            console.error('Failed to create interface container');
+            return;
+        }
+
+        log('MediaMagnet initialized successfully', 'success');
+    } catch (error) {
+        console.error('MediaMagnet initialization error:', error);
+    }
+}
+
+// Create interface elements
+function createInterface() {
+    try {
+        // Check if document.body exists
+        if (!document.body) {
+            console.error('Document body not available');
+            return null;
+        }
+
+        // Check if interface already exists
+        const existingContainer = document.querySelector('#mediamagnet');
+        if (existingContainer) {
+            return existingContainer;
+        }
+
+        // Create main container
+        const container = document.createElement('div');
+        container.id = 'mediamagnet';
+        container.className = 'mm-container';
+        document.body.appendChild(container);
+
+        return container;
+    } catch (error) {
+        console.error('Interface creation error:', error);
+        return null;
+    }
+}
+
+    // Initialize when the document is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                initializeApp();
+            } catch (error) {
+                console.error('MediaMagnet initialization error:', error);
+            }
+        });
+    } else {
+        try {
+            initializeApp();
+        } catch (error) {
+            console.error('MediaMagnet initialization error:', error);
+        }
+    }
