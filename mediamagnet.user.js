@@ -2130,7 +2130,7 @@ function updateState(newState) {
         }
 
         .video-year {
-            color: var(--text-secondary);
+            color: var (--text-secondary);
             background: var(--bg-tertiary);
             padding: 3px 8px;
             border-radius: 4px;
@@ -2384,7 +2384,7 @@ function updateState(newState) {
         }
         
         .mm-log-info {
-            color: var(--text-color);
+            color: var (--text-color);
         }
         
         .mm-log-success {
