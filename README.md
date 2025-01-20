@@ -69,12 +69,6 @@ MediaMagnet is a Tampermonkey script that helps you scan open directories for vi
    - Export settings
    - Clear results
 
-## Keyboard Shortcuts
-
-- `Ctrl+M`: Toggle interface visibility
-- `Ctrl+F`: Focus search input
-- `Ctrl+S`: Start scan
-- `Ctrl+C`: Clear results
 
 ## Supported Video Formats
 
