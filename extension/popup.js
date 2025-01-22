@@ -163,77 +163,8 @@ const Stats = {
     types: {}
   },
 
-  charts: {
-    quality: null,
-    type: null
-  },
-
   initializeCharts() {
-    // Ensure Chart.js is loaded
-    if (typeof Chart === 'undefined') {
-      console.error('Chart.js is not loaded');
-      return;
-    }
-
-    // Quality distribution chart
-    this.charts.quality = new Chart(
-      document.getElementById('qualityChart'),
-      {
-        type: 'doughnut',
-        data: {
-          labels: ['4K', '1080p', '720p', 'Unknown'],
-          datasets: [{
-            data: [0, 0, 0, 0],
-            backgroundColor: [
-              '#ff69b4',
-              '#ff1493',
-              '#db7093',
-              '#444444'
-            ]
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'right',
-              labels: { color: '#fff' }
-            }
-          }
-        }
-      }
-    );
-
-    // Content type chart
-    this.charts.type = new Chart(
-      document.getElementById('typeChart'),
-      {
-        type: 'doughnut',
-        data: {
-          labels: ['Movies', 'TV', 'Anime', 'Other'],
-          datasets: [{
-            data: [0, 0, 0, 0],
-            backgroundColor: [
-              '#ff69b4',
-              '#ff1493',
-              '#db7093',
-              '#444444'
-            ]
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'right',
-              labels: { color: '#fff' }
-            }
-          }
-        }
-      }
-    );
+    // No chart initialization needed
   },
 
   updateStats(results) {
@@ -243,27 +174,6 @@ const Stats = {
     // Update UI
     document.getElementById('totalFiles').textContent = this.data.totalFiles;
     document.getElementById('totalSize').textContent = formatFileSize(this.data.totalSize);
-    
-    // Update charts
-    this.updateCharts(results);
-  },
-
-  updateCharts(results) {
-    // Calculate quality distribution
-    const qualities = { '4K': 0, '1080p': 0, '720p': 0, 'Unknown': 0 };
-    const types = { 'Movies': 0, 'TV': 0, 'Anime': 0, 'Other': 0 };
-
-    results.forEach(file => {
-      qualities[file.quality] = (qualities[file.quality] || 0) + 1;
-      types[file.type] = (types[file.type] || 0) + 1;
-    });
-
-    // Update charts
-    this.charts.quality.data.datasets[0].data = Object.values(qualities);
-    this.charts.type.data.datasets[0].data = Object.values(types);
-    
-    this.charts.quality.update();
-    this.charts.type.update();
   },
 
   updateProgress(current, total) {

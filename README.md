@@ -47,21 +47,14 @@ A Chrome extension for scanning open directories and organizing video content. M
 2. Click the MediaMagnet extension icon
 3. Configure scan settings:
    - Set maximum scan depth
-   - Toggle recursive scanning
-   - Choose whether to skip external links
-4. Use the filters to narrow down results:
-   - Quality (4K, 1080p, 720p, etc.)
-   - Type (Movie, TV Show, Anime)
-   - Year
-   - File size range
-   - Search terms
-5. Click "Scan Directory" to start scanning
-6. Use the generated results to:
-   - Sort by different criteria
-   - Generate M3U playlists
-   - Export settings
-   - Clear results
-
+   - Enable/disable recursive scanning
+   - Select content filters
+4. Click "Scan Directory" to begin
+5. Use the tabs to:
+   - View scan results
+   - Monitor progress in the console
+   - Access scan history
+6. Generate M3U playlists from results
 
 ## Supported Formats
 
